@@ -1,0 +1,107 @@
+AES Encryption is a method for scrambing data.
+A key is used to mix up data such that it can be securely stored or transferred
+over a network, and only persons with the key can unscramble the data.
+
+It is a symmetric key encryption algorithm. This means that the same key is used to scramble 
+and unscramble the data.
+
+varius state:
+
+-- SUBBYTES
+
+Here we replace each byte of the state with another byte depending on the key.
+The substiitutions are usually presented as a Look-up table
+called Rijndael S-box. The S-box consists of256 bytes substitutions arranged in a 16x16 grid.
+
+-- SHIFT ROWS
+
+The shift rows staep shifts the rows of the state to the left. The first row is not shifted. 
+The second row is shifted by 1 byte to the left. 
+The third row is shifted by 2 bytes, the final row is shifted by 3 bytes.
+As bytes are shifted out on the left, they reappear on the right. 
+This operation is called rotation.
+
+-- ADD ROUND KEY
+
+The Add Round Key in two places. It is used in the witheing step and also in the inner loop.
+This step involves adding the state and the round key using a special type arithmetic.
+
+The state and round key are added as Galois fields (or finite fields). The arithmetic used is binary 
+addition mod 2. This means every bit in the input is added to the corresponding bit in the round key,
+and the result MOD 2 is stored in the state.
+
+This is very convenient because Binary addition MOD 2 happens to exactly match a particular operation 
+which CPU's can perform extremely fast.
+
+5  7  7  ==>  5x^2  7x^1  3x^0       1x^7 0x^6 1x^5 1x^4 0x^3 1x^2 0x^1 1x^0  +  STATE
+									 1X^7  0    0    1    1     0  1X^1 1X^0  =  KEY 
+									--------------------------------------------
+									   0   0	1	 0    1     1    1    0    ==> XOR 
+									   
+
+-- MIX COLUMNS
+
+It is composed by 2 steps :
+
+1)Dot product: it is a common operation on lists/vectors/arrays. So long 
+as the items in the list have the operations Addition and Multiplication defined, 
+we can compute the dot  product. To compute the dot product.
+
+Dot products involve multiplying corresponding elements and adding 
+their products together. But, we're not multiplying and adding numbers.
+the element in our vectors (the state and another matrix which we ll see next)
+are Galois fields. We're multiplying and adding Polynomials MOD 2!!
+
+Multiplying 2 Galois fields could potentially result in a product which does not fit into a byte. 
+So we reduce the result Mod a specially selected polinomial, X^8 + X^4 + X^3 + X^1 + X^0.
+
+Reduction MOD this polynomial can be done with a similiar algorithm to Long Division. 
+Except, instead of subtracting values, we perform XOR. This is because Subtraction MOD 2
+is the same operation as Addition MOD 2, and Addition MOD 2 is XOR.
+
+The product of 2 polynomials has a term for every pair of terms in the operand polynomials.
+So the product of our 2 Galois fields becomes a series of addition of exponents. 
+
+Also: our Galois fields are MOD 2. So the product will either have 0x^y, or 1x^y. 
+If our resulting product has an even number of some exponent, y, then it appears as 0x^y in the final product. 
+In an exponent appears an odd number of times, then it appears as 1x^y.
+
+that's all for multiplication. When computing the dot products, we also need to add the intermediate results.
+This is XOR once again, since our intermediate products ate all Galois fields, we use Addition MOD 2
+just like we did in the AddRoundKey step.
+
+2) Look up Tables : When encrypting with AES we actually need to multiply 
+by the Galois fields for 1, 2 or 3 (as we ll se next).
+
+Multiplication of Galois field by the Galois field for 1 results in the input not being changed at all.
+For multiplication by the Galois fields for 2 the results are any of 256 different 
+values, and the same for multiplication by the Galois fields for 3. 
+
+Therefore, the results of these multiplications is just a 256 bytelook up table. We just need 2 tables, Mul2 and Mul3 
+to store the complicated multiplications MOD 100011011.
+
+
+-- KEY EXPANSION
+
+a) Key expansion core ...
+				1) Rotate Left : This operation treays the 4 bytes as a single unit. We rotate the bytes left by 1 byte. 
+					Rotate is the same of shift, only the byte reappears on the right as it is shifted out.
+				2) S-box : In the S-Box step, we swap each byte with the corresponding value from the Rijndael S-box.
+					The s - box is just a look-up-table
+				3) R-Con : here we raise 2 to the power of i-1, where 'i' is the iteration number. We then add this 
+					to the valueof the first byte in the 4. I.e, the first byte becomes itself+2^(i-1)
+					When we raise 2 to this power, and when we add, we are using Galois fields, it is not a regular arithmetic.
+					We looked at multiplication of Galois fields in the previous step.
+					Rcon it s just another look up table!!
+					
+b) Key expansion : Copy the original 128 bit key to the first 16 bytes of the expanded key.
+					
+					- Variables: we need to keep track of how many bytes we've generated, the Rcon iteration value, and 
+						we need a temporary variable for when we call the core.
+					- Read the bytes for the core : The bytes for the core are the previously generated 4 bytes. 
+						Initially, these will be the final 4 bytes of the originale key.
+					- Perform the core : Once every new key, we perform the core with temp and the current Rcon iteration value, 
+						we then increment the iteration value. Keys are of lenght 16 bytes, so do this 
+						whenever bytesGenerated %16 is 0.
+					- Xor and Store Diagram : Add (Xor) temp to the bytes 16 from the bytes generated. 
+						Store temps as the newly generated bytes in expanded_key and increment the bytes generated by 4
